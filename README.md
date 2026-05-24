@@ -12,7 +12,7 @@
 
 **Real-time, industrial-grade computer vision pipeline for automated pear quality inspection and sorting.**
 
-Detects pear presence · Identifies surface infections · Classifies quality · Drives servo actuators to physically sort pears — all at **1 Hz+ in real time** on edge hardware.
+Detects pear presence · Identifies surface infections · Classifies quality · Drives servo actuators to physically sort pears - all at **1 Hz+ in real time** on edge hardware.
 
 ---
 
@@ -46,7 +46,7 @@ The system follows a strict **single-responsibility, modular pipeline**. Every f
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        config.py                            │
-│  All tunable parameters — imported by every module          │
+│  All tunable parameters - imported by every module          │
 └─────────────────────────────────────────────────────────────┘
                             │ (global read)
                             ▼
@@ -106,7 +106,7 @@ The system follows a strict **single-responsibility, modular pipeline**. Every f
 
 ##  Pipeline Stages
 
-### Stage 1 — Frame Capture &nbsp;`utils.py`
+### Stage 1 - Frame Capture &nbsp;`utils.py`
 
 Opens the camera, sets resolution, and reads one BGR frame per cycle.
 
@@ -115,13 +115,13 @@ cap   = init_camera()          # opens cv2.VideoCapture(CAMERA_INDEX)
 frame = get_frame(cap)         # shape: (FRAME_HEIGHT × FRAME_WIDTH × 3)
 ```
 
-> **Test mode:** `load_test_frame(path)` loads a static JPEG/PNG instead of the live camera — perfect for threshold tuning.
+> **Test mode:** `load_test_frame(path)` loads a static JPEG/PNG instead of the live camera - perfect for threshold tuning.
 
 ---
 
-### Stage 2 — Frame Division &nbsp;`frame_divider.py`
+### Stage 2 - Frame Division &nbsp;`frame_divider.py`
 
-Slices the full frame into **6 fixed ROIs** matching the physical tray layout. **No processing at all — only NumPy array views.**
+Slices the full frame into **6 fixed ROIs** matching the physical tray layout. **No processing at all - only NumPy array views.**
 
 ```
 ┌───────────┬───────────┐
@@ -140,7 +140,7 @@ roi_dict = frame_divider(frame)
 
 ---
 
-### Stage 3 — Preprocessing &nbsp;`preprocessing.py`
+### Stage 3 - Preprocessing &nbsp;`preprocessing.py`
 
 Two operations per ROI, in order:
 
@@ -156,7 +156,7 @@ preprocessed = preprocess_all_rois(roi_dict)
 
 ---
 
-### Stage 4 — Pear Detection &nbsp;`pear_detection.py`
+### Stage 4 - Pear Detection &nbsp;`pear_detection.py`
 
 Five-step sub-pipeline per ROI:
 
@@ -186,9 +186,9 @@ solidity       ≥  PEAR_MIN_SOLIDITY
 
 ---
 
-### Stage 5 — Infection Detection &nbsp;`infection_detection.py`
+### Stage 5 - Infection Detection &nbsp;`infection_detection.py`
 
-Runs **only inside the pear mask** — never touches background pixels.
+Runs **only inside the pear mask** - never touches background pixels.
 
 ```
 Extract pear region (bitwise_and)
@@ -232,7 +232,7 @@ Extract pear region (bitwise_and)
 
 ---
 
-### Stage 6 — Feature Packing &nbsp;`feature_extraction.py`
+### Stage 6 - Feature Packing &nbsp;`feature_extraction.py`
 
 Merges pear + infection results into the standard **6-value state vector**:
 
@@ -251,7 +251,7 @@ Areas are converted from pixels² to cm² using `SCALE_FACTOR`.
 
 ---
 
-### Stage 7 — Motor Task &nbsp;`motor_task.py`
+### Stage 7 - Motor Task &nbsp;`motor_task.py`
 
 **Stateless, deterministic, no image processing.** Pure decision → angle mapping.
 
@@ -279,13 +279,13 @@ motor_task(frame_data)
 
 ---
 
-### Stage 8 — Publishing &nbsp;`publisher.py`
+### Stage 8 - Publishing &nbsp;`publisher.py`
 
 Sends the full frame payload to the configured destination:
 
 | Mode | Transport | Format |
 |------|-----------|--------|
-| `print` | stdout | Formatted table — good for development |
+| `print` | stdout | Formatted table - good for development |
 | `file` | disk | JSON lines appended to `OUTPUT_FILE_PATH` |
 | `ros2` | ROS2 topic | `std_msgs/String` serialized JSON |
 | `serial` | UART | Compact `A,R,N,A,N,R\n` codes per frame |
@@ -317,7 +317,7 @@ pip install adafruit-circuitpython-pca9685 adafruit-circuitpython-motor
 # Serial output (optional)
 pip install pyserial
 
-# ROS2 output (optional — requires a ROS2 environment)
+# ROS2 output (optional - requires a ROS2 environment)
 # rclpy is installed as part of your ROS2 distro
 ```
 
@@ -332,12 +332,12 @@ cd pear-sorting-vision
 
 ## ▶ Running the System
 
-### Live camera — normal mode
+### Live camera - normal mode
 ```bash
 python main.py
 ```
 
-### Live camera — with debug overlay window
+### Live camera - with debug overlay window
 ```bash
 python main.py --debug
 ```
@@ -409,7 +409,7 @@ ROI_DEFINITIONS = {
 }
 ```
 
-### Pear detection — HSV thresholds
+### Pear detection - HSV thresholds
 
 > **This is the most critical tuning step.** HSV ranges must match your specific pear variety and lighting.
 
@@ -425,7 +425,7 @@ PEAR_HSV_UPPER = np.array([95, 255, 255])
 #   V ↓  →  exclude bright highlights (e.g., ~200 for overexposed)
 ```
 
-### Infection detection — key thresholds
+### Infection detection - key thresholds
 
 ```python
 INFECTION_HSV_UPPER = np.array([30, 255, 100])
@@ -454,13 +454,13 @@ MOTOR_CHANNELS = {        # PCA9685 I²C channel per tray slot
 
 Follow these steps in order when deploying to a new setup:
 
-#### Step 1 — Align the camera
+#### Step 1 - Align the camera
 ```bash
 python main.py --debug
 ```
 Adjust the camera physically until all 6 ROI rectangles align with tray slots. Update `ROI_DEFINITIONS` in `config.py` to match.
 
-#### Step 2 — Tune pear HSV range
+#### Step 2 - Tune pear HSV range
 Place healthy pears in all slots. Adjust `PEAR_HSV_LOWER` / `PEAR_HSV_UPPER` until the pear bodies appear fully white in the debug mask with no background leaking through.
 
 **Quick HSV sampler:**
@@ -471,17 +471,17 @@ hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 # Click a pixel and read its H, S, V values to find the right range
 ```
 
-#### Step 3 — Tune infection thresholds
-Use infected pear samples. Adjust `INFECTION_HSV_UPPER[2]` (V channel) — if light brown infections are missed, raise it toward 120–130. Adjust `INFECTION_AREA_THRESHOLD` if healthy pears with small natural spots are wrongly rejected.
+#### Step 3 - Tune infection thresholds
+Use infected pear samples. Adjust `INFECTION_HSV_UPPER[2]` (V channel) - if light brown infections are missed, raise it toward 120–130. Adjust `INFECTION_AREA_THRESHOLD` if healthy pears with small natural spots are wrongly rejected.
 
-#### Step 4 — Calibrate scale factor
+#### Step 4 - Calibrate scale factor
 ```
 Place a 10×10 cm card in one ROI.
 Note the reported pear_area value.
 SCALE_FACTOR = 100.0 / reported_pixel_area
 ```
 
-#### Step 5 — Calibrate motor angles
+#### Step 5 - Calibrate motor angles
 Set `PUBLISH_MODE = "print"` and observe decisions. Manually test `MOTOR_ACCEPT_ANGLE` and `MOTOR_REJECT_ANGLE` against your physical gate mechanism.
 
 ---
@@ -572,9 +572,9 @@ This allows parallel ROI processing (e.g., `ThreadPoolExecutor`) and per-slot st
 |-----------|---------------|
 | **One responsibility per module** | `pear_detection.py` never touches motor logic |
 | **No cross-task logic** | Infection detection never runs inside pear detection |
-| **Structured data passing** | Dicts with named keys — never raw images between stages |
+| **Structured data passing** | Dicts with named keys - never raw images between stages |
 | **Independent ROIs** | Each ROI is a self-contained mini-pipeline |
-| **Stateless frames** | No memory of previous cycles — deterministic output |
+| **Stateless frames** | No memory of previous cycles - deterministic output |
 | **Config-only tuning** | Zero magic numbers in pipeline code |
 | **Hardware graceful degradation** | Auto simulation mode if PCA9685 not found |
 ---
