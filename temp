@@ -1,0 +1,182 @@
+"""
+camera_node.py — Camera Node
+==============================
+ROS2 Node: camera_node
+
+RESPONSIBILITY:
+  Open the camera (or load a test image), capture frames at the configured
+  rate, and publish each frame as a sensor_msgs/Image on:
+      /pear_sorter/raw_frame
+
+This node is the single source of truth for frame data.  All downstream
+nodes subscribe to this topic instead of accessing hardware directly.
+
+ROS2 PARAMETERS (all overridable via --ros-args):
+  camera_index    (int,   default: 0)
+  frame_width     (int,   default: 1280)
+  frame_height    (int,   default: 720)
+  loop_sleep_sec  (float, default: 1.0)
+  test_mode       (bool,  default: false)
+  test_image_path (str,   default: "")
+
+PUBLISHED TOPICS:
+  /pear_sorter/raw_frame  [sensor_msgs/Image]  — BGR8 encoded frame
+"""
+
+import time
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+
+from vision_classic_CV import config
+
+
+class CameraNode(Node):
+    """Captures frames and publishes them as sensor_msgs/Image."""
+
+    def __init__(self):
+        super().__init__(config.NODE_CAMERA)
+
+        # ── Declare ROS2 parameters (values can be overridden at launch) ──
+        self.declare_parameter('camera_index',    config.CAMERA_INDEX)
+        self.declare_parameter('frame_width',     config.FRAME_WIDTH)
+        self.declare_parameter('frame_height',    config.FRAME_HEIGHT)
+        self.declare_parameter('loop_sleep_sec',  config.LOOP_SLEEP_SEC)
+        self.declare_parameter('test_mode',       False)
+        self.declare_parameter('test_image_path', '')
+
+        # Read parameter values
+        self._camera_index   = self.get_parameter('camera_index').value
+        self._width          = self.get_parameter('frame_width').value
+        self._height         = self.get_parameter('frame_height').value
+        self._loop_sleep_sec = self.get_parameter('loop_sleep_sec').value
+        self._test_mode      = self.get_parameter('test_mode').value
+        self._test_image_path = self.get_parameter('test_image_path').value
+
+        # ── Publisher ──
+        self._pub = self.create_publisher(Image, config.TOPIC_RAW_FRAME, 10)
+
+        # ── cv_bridge converts numpy arrays ↔ ROS Image messages ──
+        self._bridge = CvBridge()
+
+        # ── Camera / test-image setup ──
+        self._cap = None
+        if not self._test_mode:
+            self._init_camera()
+        else:
+            if not self._test_image_path:
+                self.get_logger().error(
+                    "test_mode=true but test_image_path is empty. "
+                    "Set --ros-args -p test_image_path:=/path/to/image.jpg"
+                )
+                raise RuntimeError("test_image_path required in test_mode")
+            self.get_logger().info(
+                f"Test mode: using static image '{self._test_image_path}'"
+            )
+
+        # ── Timer drives the main loop at the requested rate ──
+        period = self._loop_sleep_sec
+        self._timer = self.create_timer(period, self._timer_callback)
+
+        self.get_logger().info(
+            f"CameraNode started | "
+            f"{'TEST' if self._test_mode else 'LIVE'} mode | "
+            f"{1.0/period:.1f} Hz | "
+            f"topic: {config.TOPIC_RAW_FRAME}"
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _init_camera(self):
+        """Open and configure the physical camera."""
+        self._cap = cv2.VideoCapture(self._camera_index)
+        if not self._cap.isOpened():
+            msg = (
+                f"Cannot open camera at index {self._camera_index}. "
+                "Check CAMERA_INDEX or pass camera_index param."
+            )
+            self.get_logger().fatal(msg)
+            raise RuntimeError(msg)
+
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self._width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+
+        actual_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.get_logger().info(
+            f"Camera {self._camera_index} opened: {actual_w}×{actual_h} px"
+        )
+
+    def _capture_frame(self) -> np.ndarray:
+        """Return the next BGR frame (live or static)."""
+        if self._test_mode:
+            img = cv2.imread(self._test_image_path)
+            if img is None:
+                raise FileNotFoundError(
+                    f"Test image not found: {self._test_image_path}"
+                )
+            return cv2.resize(img, (self._width, self._height))
+
+        ret, frame = self._cap.read()
+        if not ret or frame is None:
+            raise RuntimeError("Failed to read frame from camera.")
+        return frame
+
+    # ------------------------------------------------------------------
+    # Timer callback — runs at configured Hz
+    # ------------------------------------------------------------------
+
+    def _timer_callback(self):
+        t0 = time.perf_counter()
+        try:
+            frame = self._capture_frame()
+        except Exception as e:
+            self.get_logger().error(f"Frame capture failed: {e}")
+            return
+
+        # Convert BGR numpy array → sensor_msgs/Image (BGR8 encoding)
+        msg = self._bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+        msg.header.stamp    = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'camera_frame'
+
+        self._pub.publish(msg)
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        self.get_logger().debug(f"Frame published in {elapsed_ms:.1f} ms")
+        cv2.imshow("Live Jetson Camera Feed", frame)
+        
+        # This forces OpenCV to render the window frame (1ms delay)
+        cv2.waitKey(1)
+
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
+
+    def destroy_node(self):
+        if self._cap is not None and self._cap.isOpened():
+            self._cap.release()
+            self.get_logger().info("Camera released.")
+        super().destroy_node()
+
+
+# ── Entry point ────────────────────────────────────────────────────────────
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = CameraNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
